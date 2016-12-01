@@ -2,6 +2,9 @@ module Caching
 
 export @cached
 
+# escape the type of an argument, but not the argument name
+# itself. This is a workaround for
+# https://github.com/JuliaLang/julia/issues/16096
 esc_type(arg::Symbol) = arg
 function esc_type(arg::Expr)
     @assert arg.head == :(::)
@@ -45,6 +48,7 @@ macro cached(definition::Expr)
     outer_function = Expr(:function,
     Expr(:call, esc(attribute), object),
     quote
+        $(inner_function)
         if isnull($(object).$(attribute))
             $(object).$(attribute) = Nullable($(esc(inner_function_name))($(object)))
         end
@@ -52,10 +56,7 @@ macro cached(definition::Expr)
     end
     )
 
-    quote
-        $(inner_function)
-        $(outer_function)
-    end
+    outer_function
 end
 
 end

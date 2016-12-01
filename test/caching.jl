@@ -21,8 +21,6 @@ module cachingtest
     #     end)))
 
     @cached function bar(foo::Foo)
-        println("running bar")
-        println(foo)
         global bar_counter
         bar_counter += 1
         6
@@ -30,7 +28,6 @@ module cachingtest
 
     baz_counter = 0
     @cached baz(foo) = begin
-        println("running baz")
         global baz_counter
         baz_counter += 1
         1.0
@@ -40,10 +37,12 @@ end
 @testset "caching" begin
     f = cachingtest.Foo()
     @test cachingtest.bar(f) == 6
+    @test cachingtest.bar_counter == 1
     @test cachingtest.bar(f) == 6
     @test cachingtest.bar_counter == 1
 
     @test cachingtest.baz(f) == 1.0
+    @test cachingtest.baz_counter == 1
     @test cachingtest.baz(f) == 1.0
     @test cachingtest.baz_counter == 1
 end
