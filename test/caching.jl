@@ -45,4 +45,7 @@ end
     @test cachingtest.baz_counter == 1
     @test cachingtest.baz(f) == 1.0
     @test cachingtest.baz_counter == 1
+
+    @inferred cachingtest.bar(f)
+    @inferred cachingtest.baz(f)
 end
