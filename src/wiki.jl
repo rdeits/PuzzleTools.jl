@@ -5,7 +5,7 @@ export WikiPage,
        content,
        title
 
-using Requests, JSON, Caching
+using Requests, JSON, PuzzleTools.Caching
 
 type MediaWiki
     url::String
