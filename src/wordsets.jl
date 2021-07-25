@@ -1,6 +1,6 @@
 module Wordsets
 
-typealias Wordset Set{String}
+const Wordset = Set{String}
 
 cleanup_phrase(phrase) = replace(lowercase(phrase), r"[^a-z ]", "")
 

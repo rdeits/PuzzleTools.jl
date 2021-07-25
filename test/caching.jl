@@ -1,4 +1,4 @@
-using Base.Test
+using Test
 
 module cachingtest
     import Caching: @cached

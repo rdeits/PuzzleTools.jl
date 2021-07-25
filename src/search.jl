@@ -1,9 +1,9 @@
 module Search
 
-function breadth_first{T}(start::T, 
-        transitions::Function,
-        iscomplete::Function = x -> true,
-        ispartial::Function = x -> true)
+function breadth_first(start::T,
+        transitions,
+        iscomplete = x -> true,
+        ispartial = x -> true) where T
     paths = T[]
     active_set = T[start]
     while true
@@ -27,11 +27,11 @@ function breadth_first{T}(start::T,
     paths
 end
 
-function depth_first{T}(start::T, 
-        transitions::Function,
-        iscomplete::Function = x -> true,
-        ispartial::Function = x -> true;
-        limit=Inf)
+function depth_first(start::T,
+        transitions,
+        iscomplete = x -> true,
+        ispartial = x -> true;
+        limit=Inf) where {T}
     active_set = T[start]
     paths = T[]
     while !isempty(active_set)

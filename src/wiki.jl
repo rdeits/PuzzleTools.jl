@@ -5,9 +5,11 @@ export WikiPage,
        content,
        title
 
-using Requests, JSON, PuzzleTools.Caching
+using HTTP: request
+using JSON
+using ..Caching
 
-type MediaWiki
+struct MediaWiki
     url::String
 end
 
@@ -19,23 +21,19 @@ function wiki_request(query_params, wiki::MediaWiki=wikipedia)
         "action" => "query",
         query_params...
     )
-    Requests.json(get(
-        wiki.url,
-        query=query
-    ))
+    response = request("GET", wiki.url, query=query)
+    JSON.parse(String(response.body))
 end
 
-type WikiPage
+struct WikiPage
     title::String
     wiki::MediaWiki
-    links::Nullable{Vector{String}}
-    content::Nullable{String}
+    links::Union{Vector{String}, Nothing}
+    content::Union{String, Nothing}
 
     WikiPage(title, wiki=wikipedia) = new(title,
         wiki,
-        Nullable{Vector{String}}(),
-        Nullable{String}()
-    )
+        nothing, nothing)
 end
 
 
