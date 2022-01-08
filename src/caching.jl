@@ -1,62 +1,28 @@
 module Caching
 
+using MacroTools: splitdef
+
 export @cached
 
-# escape the type of an argument, but not the argument name
-# itself. This is a workaround for
-# https://github.com/JuliaLang/julia/issues/16096
-esc_type(arg::Symbol) = arg
-function esc_type(arg::Expr)
-    @assert arg.head == :(::)
-    Expr(:(::), arg.args[1], esc(arg.args[2]))
-end
-
-argument_name(arg::Symbol) = arg
-function argument_name(arg::Expr)
-    @assert arg.head == :(::)
-    arg.args[1]
-end
-
+"""
+Create a single-argument function which caches its result in a struct field
+of the same name within that argument.
+"""
 macro cached(definition::Expr)
-    @assert(definition.head == :function || definition.head == :(=),
-           "Expected a function declaration")
-    signature = definition.args[1]
-    args = signature.args[2:end]
-    @assert(length(args) == 1,
-            "Expected a function taking exactly one argument")
-    body = definition.args[2]
-    @assert signature.head == :call
+    components = splitdef(definition)
+    name = components[:name]
+    @assert length(components[:args]) == 1 "Expected a function of one argument"
+    @assert length(components[:kwargs]) == 0 "Expected a function with no keyword arguments"
+    obj = only(components[:args])
 
-    attribute = signature.args[1]
-    object = esc_type(signature.args[2])
-
-    inner_function_name = gensym(attribute)
-    inner_function = Expr(:function,
-        Expr(:call, esc(inner_function_name), object),
-            Expr(:block,
-                # TODO: remove this when
-                # https://github.com/JuliaLang/julia/issues/16096
-                # is resolved
-                Expr(:(=),
-                    esc(argument_name(signature.args[2])),
-                    object
-                ),
-                esc(body)
-            )
-        )
-
-    outer_function = Expr(:function,
-    Expr(:call, esc(attribute), object),
     quote
-        $(inner_function)
-        if isnull($(object).$(attribute))
-            $(object).$(attribute) = Nullable($(esc(inner_function_name))($(object)))
+        $(esc(components[:name]))($(esc.(components[:args])...)) = begin
+            if ($(esc(obj)).$(name)) === missing
+                ($(esc(obj)).$(name)) = $(esc(components[:body]))
+            end
+            $(esc(obj)).$(name)
         end
-        get($(object).$(attribute))
     end
-    )
-
-    outer_function
 end
 
 end

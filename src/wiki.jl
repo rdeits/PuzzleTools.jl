@@ -3,11 +3,13 @@ module Wiki
 export WikiPage,
        links,
        content,
-       title
+       title,
+       wordset
 
 using HTTP: request
 using JSON
 using ..Caching
+using ..Wordsets: cleanup_phrase
 
 struct MediaWiki
     url::String
@@ -25,15 +27,15 @@ function wiki_request(query_params, wiki::MediaWiki=wikipedia)
     JSON.parse(String(response.body))
 end
 
-struct WikiPage
+mutable struct WikiPage
     title::String
     wiki::MediaWiki
-    links::Union{Vector{String}, Nothing}
-    content::Union{String, Nothing}
+    links::Union{Vector{WikiPage}, Missing}
+    content::Union{String, Missing}
 
     WikiPage(title, wiki=wikipedia) = new(title,
         wiki,
-        nothing, nothing)
+        missing, missing)
 end
 
 
@@ -72,7 +74,7 @@ function search(query, wiki::MediaWiki=wikipedia;
         "limit" => results,
         "srsearch" => query
     ), wiki)
-    String[d["title"] for d in result["query"]["search"]]
+    [WikiPage(d["title"]) for d in result["query"]["search"]]
 end
 
 function suggest(query, wiki::MediaWiki=wikipedia)
@@ -97,7 +99,7 @@ title(page::WikiPage) = page.title
         "plnamespace" => 0,
         "pllimit" => "max",
     ))
-    String[d["title"] for d in raw_links]
+    [WikiPage(d["title"]) for d in raw_links]
 end
 
 @cached function content(page::WikiPage)
@@ -105,6 +107,12 @@ end
         "prop" => "revisions",
         "rvprop" => "content"
     ))[1]["*"]::String
+end
+
+cleanup_wiki_title(title) = replace(title, r"\([^\)]*\)" => "")
+
+function wordset(query)
+    Set{String}(cleanup_phrase.(cleanup_wiki_title.(title.(links(first(search(query)))))))
 end
 
 end

@@ -1,35 +1,26 @@
 using Test
+using PuzzleTools
 
 module cachingtest
-    import Caching: @cached
+    import PuzzleTools.Caching: @cached
 
-    type Foo
-        bar::Nullable{Int}
-        baz::Nullable{Float64}
+    mutable struct Foo
+        bar::Union{Int, Missing}
+        baz::Union{Float64, Missing}
 
-        Foo() = new(Nullable{Int}(), Nullable{Float64}())
+        Foo() = new(missing, missing)
     end
 
-    bar_counter = 0
-
-    # println(macroexpand(:(@cached function bar(foo::Foo)
-    #         println("running bar")
-    #         println(foo)
-    #         global bar_counter
-    #         bar_counter += 1
-    #         6
-    #     end)))
+    bar_counter = Ref(0)
 
     @cached function bar(foo::Foo)
-        global bar_counter
-        bar_counter += 1
+        bar_counter[] += 1
         6
     end
 
-    baz_counter = 0
+    baz_counter = Ref(0)
     @cached baz(foo) = begin
-        global baz_counter
-        baz_counter += 1
+        baz_counter[] += 1
         1.0
     end
 end
@@ -37,15 +28,12 @@ end
 @testset "caching" begin
     f = cachingtest.Foo()
     @test cachingtest.bar(f) == 6
-    @test cachingtest.bar_counter == 1
+    @test cachingtest.bar_counter[] == 1
     @test cachingtest.bar(f) == 6
-    @test cachingtest.bar_counter == 1
+    @test cachingtest.bar_counter[] == 1
 
     @test cachingtest.baz(f) == 1.0
-    @test cachingtest.baz_counter == 1
+    @test cachingtest.baz_counter[] == 1
     @test cachingtest.baz(f) == 1.0
-    @test cachingtest.baz_counter == 1
-
-    @inferred cachingtest.bar(f)
-    @inferred cachingtest.baz(f)
+    @test cachingtest.baz_counter[] == 1
 end

@@ -1,8 +1,8 @@
 module PuzzleTools
 
 include("caching.jl")
-include("wiki.jl")
 include("wordsets.jl")
+include("wiki.jl")
 include("search.jl")
 
 end
