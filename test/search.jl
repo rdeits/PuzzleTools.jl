@@ -1,7 +1,7 @@
 using Test
 using PuzzleTools.Search
 
-@testset "search" begin
+@testset "graph_search" begin
     actions = Dict(
         1 => [11, 22, 9],
         2 => [6, 14, 12, 9, 5, 1],
