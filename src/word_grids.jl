@@ -33,15 +33,15 @@ struct WordGrid
     entries::Vector{Vector{Int}}
 
     # Size: num_cells.
-    # For each cell, gives the indices of entries which include it
-    intersections::Vector{Vector{Int}}
+    # For each cell, gives the list of (entry index, index within entry) for all entries that include that cell
+    intersections::Vector{Vector{Tuple{Int, Int}}}
 
     function WordGrid(entries::AbstractVector{<:AbstractVector{<:Integer}})
         max_cell_index = maximum(Iterators.flatten(entries))
-        intersections = [Vector{Int}() for _ in 1:max_cell_index]
+        intersections = [Vector{Tuple{Int, Int}}() for _ in 1:max_cell_index]
         for (entry_index, entry) in enumerate(entries)
-            for cell in entry
-                push!(intersections[cell], entry_index)
+            for (cell_index_in_entry, cell) in enumerate(entry)
+                push!(intersections[cell], (entry_index, cell_index_in_entry))
             end
         end
         new(entries, intersections)
@@ -98,10 +98,6 @@ struct WordGridState
     options::Vector{Union{Vector{Int}, Nothing}}
 end
 
-# function num_options(corpus, entry::AbstractVector)
-#     count(w -> true, possible_assignments(corpus, entry))
-# end
-
 function WordGridState(grid::WordGrid, corpus)
     cells = fill(Char(0), num_cells(grid))
     options = Union{Vector{Int}, Nothing}[Vector{Int}() for _ in 1:num_entries(grid)]
@@ -124,15 +120,15 @@ function apply!(state::WordGridState, grid::WordGrid, corpus, entry_index::Integ
     state.options[entry_index] = nothing
 
     for cell_index in grid.entries[entry_index]
-        for intersecting_entry_index in grid.intersections[cell_index]
-            if intersecting_entry_index == entry_index
+        for (other_entry, index_in_other_entry) in grid.intersections[cell_index]
+            if other_entry == entry_index
                 continue
             end
-            if state.options[intersecting_entry_index] === nothing
+            if state.options[other_entry] === nothing
                 continue
             end
-            filter!(state.options[intersecting_entry_index]) do word_index
-                fits_in(corpus[word_index], @inbounds(@view(state.cells[grid.entries[intersecting_entry_index]])))
+            filter!(state.options[other_entry]) do word_index
+                corpus[word_index][index_in_other_entry] == state.cells[cell_index]
             end
         end
     end
