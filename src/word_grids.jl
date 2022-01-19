@@ -101,11 +101,27 @@ end
 function WordGridState(grid::WordGrid, corpus)
     cells = fill(Char(0), num_cells(grid))
     options = Union{Vector{Int}, Nothing}[Vector{Int}() for _ in 1:num_entries(grid)]
+
+    # First, populate the options for each entry
     for (i, entry) in enumerate(grid.entries)
         options[i] = filter(1:length(corpus)) do word_index
             fits_in(corpus[word_index], @view(cells[entry]))
         end
     end
+
+    # @time for (i, entry) in enumerate(grid.entries)
+    #     filter!(options[i]) do word_index
+    #         for (index_in_entry, cell) in enumerate(entry)
+    #             for (neighbor, index_in_neighbor) in grid.intersections[cell]
+    #                 if !any(w -> corpus[w][index_in_neighbor] == corpus[word_index][index_in_entry], options[neighbor])
+    #                     return false
+    #                 end
+    #             end
+    #         end
+    #         return true
+    #     end
+    # end
+
 
     WordGridState(cells, options)
 end
@@ -120,23 +136,43 @@ function apply!(state::WordGridState, grid::WordGrid, corpus, entry_index::Integ
     state.options[entry_index] = nothing
 
     for cell_index in grid.entries[entry_index]
-        for (other_entry, index_in_other_entry) in grid.intersections[cell_index]
-            if other_entry == entry_index
+        for (first_neighbor, index_in_first_neighbor) in grid.intersections[cell_index]
+            if first_neighbor == entry_index
                 continue
             end
-            if state.options[other_entry] === nothing
+            if state.options[first_neighbor] === nothing
                 continue
             end
-            filter!(state.options[other_entry]) do word_index
-                corpus[word_index][index_in_other_entry] == state.cells[cell_index]
+            # First, let's prune out options for the other entry which contradict the word we've chosen
+            filter!(state.options[first_neighbor]) do word_index
+                corpus[word_index][index_in_first_neighbor] == state.cells[cell_index]
+            end
+            # Now let's do some more pruning. For each of the neighbors of `first_neighbor`, let's make sure they at least have one remaining possibile fill
+            filter!(state.options[first_neighbor]) do word_index
+                for (index_in_first_neighbor, cell) in enumerate(grid.entries[first_neighbor])
+                    for (second_neighbor, index_in_second_neighbor) in grid.intersections[cell]
+                        if state.options[second_neighbor] === nothing
+                            continue
+                        end
+                        if !any(w -> corpus[w][index_in_second_neighbor] == corpus[word_index][index_in_first_neighbor], state.options[second_neighbor])
+                            return false
+                        end
+                    end
+                end
+                return true
             end
         end
     end
     state
 end
 
-function generate_fills(grid::WordGrid, corpus)
-    collected_words = sort(collect.(corpus.sorted_entries))
+function generate_fills(grid::WordGrid, unfiltered_corpus)
+    corpus = collect.(unfiltered_corpus)
+    entry_lengths = Set(length.(grid.entries))
+    filter!(corpus) do word
+        length(word) in entry_lengths
+    end
+    sort!(corpus)
 
     function children(nodes)
         state = last(nodes)
@@ -144,7 +180,7 @@ function generate_fills(grid::WordGrid, corpus)
         if num_options == 0
             return nothing
         end
-        (apply!(copy(state), grid, collected_words, most_constrained_entry, corpus[word_index]) for word_index in state.options[most_constrained_entry])
+        (apply!(copy(state), grid, corpus, most_constrained_entry, corpus[word_index]) for word_index in state.options[most_constrained_entry])
     end
 
     function evaluate(nodes)
@@ -156,7 +192,7 @@ function generate_fills(grid::WordGrid, corpus)
         end
     end
 
-    dfs(WordGridState(grid, collected_words), children, evaluate)
+    dfs(WordGridState(grid, corpus), children, evaluate)
 end
 
 
