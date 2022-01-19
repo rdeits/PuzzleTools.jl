@@ -78,51 +78,70 @@ struct LazyDFS{T, FC <: Function, FE <: Function}
     evaluate::FE
 end
 
-struct PathEntry{T, S, I}
-    node::T
-    state::S
+struct PausedIterator{I, S}
     iterator::I
+    state::S
 
-    PathEntry{T, S, I}(node::T) where {T, S, I} = new{T, S, I}(node)
-    PathEntry(node::T, state::S, iterator::I) where {T, S, I} = new{T, S, I}(node, state, iterator)
+    PausedIterator(iterator::I, state::S) where {I, S} = new{I, S}(iterator, state)
+    PausedIterator{I,S}() where {I, S} = new{I, S}()
 end
 
 function Base.iterate(dfs::LazyDFS)
-    neighbors = dfs.children(dfs.start)
+    neighbors = dfs.children([dfs.start])
+    if neighbors === nothing
+        return nothing
+    end
     itr = iterate(neighbors)
     if itr === nothing
         return nothing
     end
     _, state = itr
-    path = [(PathEntry{typeof(dfs.start), typeof(state), typeof(neighbors)}(dfs.start), false)]
-    return iterate(dfs, path)
+    iterate(dfs,
+        ([dfs.start], [(PausedIterator{typeof(neighbors), typeof(state)}(), false)]))
 end
 
-function Base.iterate(dfs::LazyDFS, path)
+function Base.iterate(dfs::LazyDFS, (path, metadata))
     while !isempty(path)
-        entry, explored = pop!(path)
+        meta, explored = pop!(metadata)
         if !explored
-            result = dfs.evaluate(entry.node)
+            result = dfs.evaluate(path)
             if result == :good
-                push!(path, (entry, true))
-                return vcat(map(e -> e[1].node, path), entry.node), path
-            end
-            if result == :partial
-                iterator = dfs.children(entry.node)
-                itr = iterate(iterator)
-                if itr !== nothing
-                    child, child_state = itr
-                    push!(path, (entry, true))
-                    push!(path, (PathEntry(child, child_state, iterator), false))
-                    continue
+                push!(metadata, (meta, true))
+                return copy(path), (path, metadata)
+            elseif result == :partial
+                child_iterator = dfs.children(path)
+                if child_iterator === nothing
+                    pop!(path)
+                else
+                    itr = iterate(child_iterator)
+                    if itr !== nothing
+                        child, child_state = itr
+                        push!(metadata, (meta, true))
+                        push!(path, child)
+                        new_metadata = (PausedIterator(child_iterator, child_state), false)
+                        if typeof(new_metadata) <: eltype(metadata)
+                            push!(metadata, new_metadata)
+                        else
+                            metadata = vcat(metadata, new_metadata)
+                        end
+                        continue
+                    else
+                        pop!(path)
+                    end
                 end
+            else
+                pop!(path)
             end
+        else
+            pop!(path)
         end
+        @assert length(path) == length(metadata)
         if !isempty(path)
-            itr = iterate(entry.iterator, entry.state)
+            itr = iterate(meta.iterator, meta.state)
             if itr !== nothing
                 node, state = itr
-                push!(path, (PathEntry(node, state, entry.iterator), false))
+                push!(path, node)
+                push!(metadata, (PausedIterator(meta.iterator, state), false))
             end
         end
     end
@@ -135,13 +154,13 @@ Base.eltype(::Type{<:LazyDFS{T}}) where {T} = Vector{T}
 """
 Depth-first search starting at `start`. Exploration is controlled by two functions:
 
-    children(node) -> Return an iterable collection of child nodes.
+    children(path) -> Return an iterable collection of child nodes. May also return `nothing` if no children exist.
 
-    evaluate(node) -> Return a Symbol describing the given node in the search. Returns one of:
+    evaluate(path) -> Return a Symbol describing the given path in the search. Returns one of:
 
-    * :good -> This node is done (i.e. has reached the goal set)
-    * :bad -> This node is impossible, and no children should be explored
-    * :partial -> This node is not known to be bad, so we should explore its children
+    * :good -> This path is done (i.e. has reached the goal set)
+    * :bad -> This path is impossible, and no children should be explored
+    * :partial -> This path is not known to be bad, so we should explore its children
 
 Returns an iterator which performs the search lazily on demand. To get a single result, you can do:
 

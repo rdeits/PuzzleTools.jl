@@ -29,8 +29,13 @@ using PuzzleTools.Search
         24 => []
     )
 
-    transitions(x) = [y for y in actions[last(x)] if y ∉ x]
-
-    @test search(1, transitions, BreadthFirst(), x -> length(x) == 24) == [[1, 11, 4, 3, 8, 6, 17, 19, 15, 12, 23, 10, 16, 5, 2, 9, 18, 20, 21, 22, 13, 14, 7, 24]]
-    @test search(1, transitions, DepthFirst(), x -> length(x) == 24) == [[1, 11, 4, 3, 8, 6, 17, 19, 15, 12, 23, 10, 16, 5, 2, 9, 18, 20, 21, 22, 13, 14, 7, 24]]
+    transitions(x) = (y for y in actions[last(x)] if y ∉ x)
+    function evaluate(x)
+        if length(x) == 24
+            :good
+        else
+            :partial
+        end
+    end
+    @test only(dfs(1, transitions, evaluate)) == [1, 11, 4, 3, 8, 6, 17, 19, 15, 12, 23, 10, 16, 5, 2, 9, 18, 20, 21, 22, 13, 14, 7, 24]
 end

@@ -4,12 +4,12 @@ export WikiPage,
        links,
        content,
        title,
-       wordset
+       corpus
 
 using HTTP: request
 using JSON
 using ..Caching
-using ..Wordsets: cleanup_phrase
+using ..PuzzleTools: Corpus
 
 struct MediaWiki
     url::String
@@ -111,8 +111,12 @@ end
 
 cleanup_wiki_title(title) = replace(title, r"\([^\)]*\)" => "")
 
-function wordset(query)
-    Set{String}(cleanup_phrase.(cleanup_wiki_title.(title.(links(first(search(query)))))))
+function corpus(query; remove_spaces=true)
+    link_names = lowercase.(cleanup_wiki_title.(title.(links(first(search(query))))))
+    if remove_spaces
+        link_names .= replace.(link_names, Ref(" " => ""))
+    end
+    Corpus(link_names)
 end
 
 end
