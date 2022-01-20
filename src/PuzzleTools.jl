@@ -7,5 +7,6 @@ include("wiki.jl")
 include("search.jl")
 include("trie_iteration.jl")
 include("word_grids.jl")
+include("letter_grids.jl")
 
 end
