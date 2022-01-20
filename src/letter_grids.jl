@@ -148,7 +148,13 @@ function GridState(grid::WordGrid, corpus)
         end)
     end
 
-    cells = [CellState(LetterMask('a':'z')) for _ in 1:num_cells(grid)]
+    cells = [CellState(LetterMask('~')) for _ in 1:num_cells(grid)]
+    for entry in grid.entries
+        for cell_id in entry
+            cells[cell_id] = CellState(LetterMask('a':'z'))
+        end
+    end
+
     state = GridState(cells, options)
 
     for entry_id in 1:num_entries(grid)
@@ -177,7 +183,6 @@ function GridState(grid::WordGrid, corpus)
 end
 
 function propagate_entry!(state::GridState, grid::WordGrid, corpus, entry_id::Integer)
-    # changed_cell_ids = Int[]
     for (index_in_entry, cell_id) in enumerate(grid.entries[entry_id])
         new_mask = LetterMask(0)
         for word_id in state.entry_options[entry_id]
@@ -187,16 +192,12 @@ function propagate_entry!(state::GridState, grid::WordGrid, corpus, entry_id::In
         if new_mask != state.cells[cell_id].mask
             state.cells[cell_id] = CellState(new_mask)
             propagate_cell!(state, grid, corpus, cell_id)
-            # push!(changed_cell_ids, cell_id)
         end
     end
-    # for cell_id in changed_cell_ids
-    # end
 end
 
 function propagate_cell!(state::GridState, grid::WordGrid, corpus, cell_id::Integer)
     cell_mask = state.cells[cell_id].mask
-    # changed_entry_ids = Int[]
     for (entry_id, index_in_entry) in grid.intersections[cell_id]
         prev_size = length(state.entry_options[entry_id])
         filter!(state.entry_options[entry_id]) do word_id
@@ -208,8 +209,6 @@ function propagate_cell!(state::GridState, grid::WordGrid, corpus, cell_id::Inte
             propagate_entry!(state::GridState, grid::WordGrid, corpus, entry_id)
         end
     end
-    # for entry_id in changed_entry_ids
-    # end
 end
 
 function apply(state::GridState, grid::WordGrid, corpus, cell_id::Integer, letter::Char)
@@ -220,37 +219,6 @@ function apply(state::GridState, grid::WordGrid, corpus, cell_id::Integer, lette
     state = GridState(cells, options)
     propagate_cell!(state, grid, corpus, cell_id)
     state
-
-    # while true
-    #     changed = false
-    #     for (entry_id, index_in_entry) in grid.intersections[target_cell_id]
-    #         prev_size = length(options[entry_id])
-    #         filter!(options[entry_id]) do word_id
-    #             all(((char, cell_id),) -> char in cells[cell_id].mask, zip(corpus[word_id], grid.entries[entry_id]))
-    #         end
-    #         changed = changed || prev_size != length(options[entry_id])
-    #         # options[entry_id] = filter(options[entry_id]) do word_id
-    #         #     corpus[word_id][index_in_entry] == letter
-    #         # end
-    #     end
-
-    #     for (entry_id, index_in_entry) in grid.intersections[target_cell_id]
-    #         new_masks = [LetterMask(0) for _ in grid.entries[entry_id]]
-    #         for word_id in options[entry_id]
-    #             for (index_in_entry, cell_id) in enumerate(grid.entries[entry_id])
-    #                 new_masks[index_in_entry] |= LetterMask(corpus[word_id][index_in_entry])
-    #             end
-    #         end
-    #         for (i, cell_id) in enumerate(grid.entries[entry_id])
-    #             cells[cell_id] = CellState(new_masks[i], cells[cell_id].done)
-    #         end
-    #     end
-    #     if !changed
-    #         break
-    #     end
-    # end
-
-    # GridState(cells, options)
 end
 
 function generate_fills(grid::WordGrid, unfiltered_corpus)
@@ -285,10 +253,7 @@ function generate_fills(grid::WordGrid, unfiltered_corpus)
         end
     end
 
-    initial_state = GridState(grid, corpus)
-    # propagate_entry!(initial_state, grid, corpus, 1)
-
-    dfs(initial_state, children, evaluate)
+    dfs(GridState(grid, corpus), children, evaluate)
 end
 
 end
