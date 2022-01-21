@@ -1,10 +1,10 @@
-using PuzzleTools.Crosswords: LetterMask
+using PuzzleTools.Crosswords: LetterMask, exactly_one_bit_set
 using Test
 using Random
 
 @testset "LetterMask" begin
     for char in 'a':'z'
-        @test Char(LetterMask(char)) == char
+        @test only(LetterMask(char)) == char
         @test length(LetterMask(char)) == 1
     end
 

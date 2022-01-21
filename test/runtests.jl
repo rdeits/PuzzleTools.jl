@@ -1,8 +1,9 @@
-include("corpus.jl")
-include("words.jl")
 include("caching.jl")
-include("wiki.jl")
+include("corpus.jl")
+include("crosswords.jl")
 include("search.jl")
+include("wiki.jl")
+include("words.jl")
 
 const PUZZLES_FOLDER = "puzzles"
 
