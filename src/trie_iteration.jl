@@ -1,4 +1,8 @@
+module TrieIteration
+
 using DataStructures: Trie
+
+export iterable_nodes, iterable_keys
 
 struct TrieNodes{T}
     trie::Trie{T}
@@ -59,4 +63,6 @@ function iterable_keys(t::Trie, prefix::AbstractString="")
         Iterators.filter(
             ((prefix, node),) -> node.is_key,
             iterable_nodes(t, prefix)))
+end
+
 end
