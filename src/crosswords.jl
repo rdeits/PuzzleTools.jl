@@ -2,6 +2,8 @@ module Crosswords
 
 using ..PuzzleTools.Search: dfs
 
+export block_crossword, generate_fills
+
 struct LetterMask
     data::UInt
 
