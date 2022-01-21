@@ -1,4 +1,4 @@
-module LetterGrids
+module Crosswords
 
 using ..PuzzleTools.Search: dfs
 
@@ -17,10 +17,8 @@ end
 exactly_one_bit_set(x::Integer) = !iszero(x) && iszero(x & (x - 1))
 exactly_one_bit_set(m::LetterMask) = exactly_one_bit_set(m.data)
 
-function Base.Char(mask::LetterMask)
-    if !exactly_one_bit_set(mask.data)
-        return Char(0)
-    end
+function Base.only(mask::LetterMask)
+    exactly_one_bit_set(mask.data) || throw(ArgumentError("Mask must contain exactly one element"))
     sizeof(mask.data) << 3 - leading_zeros(mask.data) - 1 + 'a'
 end
 
@@ -66,16 +64,12 @@ struct WordGrid
     # For each cell, gives the list of (entry index, index within entry) for all entries that include that cell
     intersections::Vector{Vector{Tuple{Int, Int}}}
 
-    function WordGrid(entries::AbstractVector{<:AbstractVector{<:Integer}})
-        if !isempty(entries)
-            max_cell_index = maximum(Iterators.flatten(entries))
-        else
-            max_cell_index = 0
-        end
-        intersections = [Vector{Tuple{Int, Int}}() for _ in 1:max_cell_index]
+    function WordGrid(num_cells::Integer, entries::AbstractVector{<:AbstractVector{<:Integer}})
+        intersections = [Vector{Tuple{Int, Int}}() for _ in 1:num_cells]
         for (entry_index, entry) in enumerate(entries)
-            for (cell_index_in_entry, cell) in enumerate(entry)
-                push!(intersections[cell], (entry_index, cell_index_in_entry))
+            for (cell_index_in_entry, cell_id) in enumerate(entry)
+                @assert 1 <= cell_id <= num_cells
+                push!(intersections[cell_id], (entry_index, cell_index_in_entry))
             end
         end
         new(entries, intersections)
@@ -117,7 +111,7 @@ function block_crossword(cells::AbstractMatrix{Bool}; min_length=3)
             end
         end
     end
-    WordGrid(entries)
+    WordGrid(length(cells), entries)
 end
 
 num_entries(grid::WordGrid) = length(grid.entries)
@@ -130,15 +124,27 @@ struct CellState
     CellState(mask::LetterMask) = new(mask, length(mask))
 end
 
+CellState(char::Char) = CellState(LetterMask(char))
+CellState(chars::AbstractVector{Char}) = CellState(LetterMask(chars))
+
 num_options(state::CellState) = state.num_options
+Base.only(state::CellState) = only(state.mask)
 
 struct GridState
     cells::Vector{CellState}
     entry_options::Vector{Vector{Int}}
+    corpus::Vector{Vector{Char}}
 end
 
 
-function GridState(grid::WordGrid, corpus)
+function GridState(grid::WordGrid, unfiltered_corpus)
+    corpus = collect.(unfiltered_corpus)
+    entry_lengths = Set(length.(grid.entries))
+    filter!(corpus) do word
+        length(word) in entry_lengths
+    end
+    sort!(corpus)
+
     options = Vector{Vector{Int}}()
     sizehint!(options, num_entries(grid))
 
@@ -155,105 +161,109 @@ function GridState(grid::WordGrid, corpus)
         end
     end
 
-    state = GridState(cells, options)
-
-    for entry_id in 1:num_entries(grid)
-        propagate_entry!(state, grid, corpus, entry_id)
-    end
-
-    # cells = Vector{CellState}()
-    # sizehint!(cells, num_cells(grid))
-    # for cell_index in 1:num_cells(grid)
-    #     if isempty(grid.intersections[cell_index])
-    #         push!(cells, CellState(LetterMask(0)))
-    #         continue
-    #     end
-    #     mask = LetterMask('a':'z')
-    #     for (entry, index_in_entry) in grid.intersections[cell_index]
-    #         entry_mask = LetterMask(0)
-    #         for word_index in options[entry]
-    #             entry_mask |= LetterMask(corpus[word_index][index_in_entry])
-    #         end
-    #         mask &= entry_mask
-    #     end
-    #     push!(cells, CellState(mask))
-    # end
-
-    GridState(cells, options)
+    GridState(cells, options, corpus)
 end
 
-function propagate_entry!(state::GridState, grid::WordGrid, corpus, entry_id::Integer)
+function propagate_entry!(state::GridState, grid::WordGrid, entry_id::Integer)
     for (index_in_entry, cell_id) in enumerate(grid.entries[entry_id])
         new_mask = LetterMask(0)
         for word_id in state.entry_options[entry_id]
-            new_mask |= LetterMask(corpus[word_id][index_in_entry])
+            new_mask |= LetterMask(state.corpus[word_id][index_in_entry])
         end
         new_mask &= state.cells[cell_id].mask
         if new_mask != state.cells[cell_id].mask
             state.cells[cell_id] = CellState(new_mask)
-            propagate_cell!(state, grid, corpus, cell_id)
+            propagate_cell!(state, grid, cell_id)
         end
     end
 end
 
-function propagate_cell!(state::GridState, grid::WordGrid, corpus, cell_id::Integer)
+function propagate_cell!(state::GridState, grid::WordGrid, cell_id::Integer)
     cell_mask = state.cells[cell_id].mask
     for (entry_id, index_in_entry) in grid.intersections[cell_id]
         prev_size = length(state.entry_options[entry_id])
         filter!(state.entry_options[entry_id]) do word_id
-            corpus[word_id][index_in_entry] in cell_mask
+            state.corpus[word_id][index_in_entry] in cell_mask
         end
         new_size = length(state.entry_options[entry_id])
         if length(state.entry_options[entry_id]) != prev_size
             # push!(changed_entry_ids, entry_id)
-            propagate_entry!(state::GridState, grid::WordGrid, corpus, entry_id)
+            propagate_entry!(state::GridState, grid::WordGrid, entry_id)
         end
     end
 end
 
-function apply(state::GridState, grid::WordGrid, corpus, cell_id::Integer, letter::Char)
+function apply(state::GridState, grid::WordGrid, cell_id::Integer, letter::Char)
 
     cells = copy(state.cells)
     cells[cell_id] = CellState(LetterMask(letter))
     options = copy.(state.entry_options)
-    state = GridState(cells, options)
-    propagate_cell!(state, grid, corpus, cell_id)
+    state = GridState(cells, options, state.corpus)
+    propagate_cell!(state, grid, cell_id)
     state
 end
 
-function generate_fills(grid::WordGrid, unfiltered_corpus)
-    corpus = collect.(unfiltered_corpus)
-    entry_lengths = Set(length.(grid.entries))
-    filter!(corpus) do word
-        length(word) in entry_lengths
+function children(nodes, grid)
+    state = last(nodes)
+    num_options, most_constrained_cell = findmin(c -> c.num_options == 1 ? typemax(typeof(c.num_options)) : c.num_options, state.cells)
+    if num_options == 0
+        return nothing
     end
-    sort!(corpus)
+    @assert num_options != typemax(Int)
+    (apply(state, grid, most_constrained_cell, letter) for letter in state.cells[most_constrained_cell].mask)
+end
 
-    function children(nodes)
-        state = last(nodes)
-        num_options, most_constrained_cell = findmin(c -> c.num_options == 1 ? typemax(typeof(c.num_options)) : c.num_options, state.cells)
-        if num_options == 0
-            return nothing
+function evaluate(nodes, grid, validate)
+    state = last(nodes)
+    fully_constrained = true
+    for (cell_id, cell) in enumerate(state.cells)
+        if isempty(grid.intersections[cell_id])
+            continue
         end
-        @assert num_options != typemax(Int)
-        (apply(state, grid, corpus, most_constrained_cell, letter) for letter in state.cells[most_constrained_cell].mask)
-    end
-
-    function evaluate(nodes)
-        state = last(nodes)
-        if all(c -> c.num_options == 1, state.cells)
-            # for entry in grid.entries
-            #     @assert [only(state.cells[i].mask) for i in entry] in corpus
-            # end
-            :good
-        elseif any(c -> c.num_options == 0, state.cells)
-            :bad
-        else
-            :partial
+        if cell.num_options == 0
+            return :bad
+        end
+        if cell.num_options > 1
+            fully_constrained = false
         end
     end
+    if !validate(state)
+        return :bad
+    end
+    if fully_constrained
+        return :good
+    end
+    return :partial
+end
 
-    dfs(GridState(grid, corpus), children, evaluate)
+function generate_fills(grid::WordGrid,
+                        state::GridState;
+                            validate = state -> true)
+    for entry_id in 1:num_entries(grid)
+        propagate_entry!(state, grid, entry_id)
+    end
+
+    for cell_id in 1:num_cells(grid)
+        propagate_cell!(state, grid, cell_id)
+    end
+
+    search = dfs(state, nodes -> children(nodes, grid),
+                 nodes -> evaluate(nodes, grid, validate))
+    Iterators.map(search) do nodes
+        state = last(nodes)
+        map(1:num_cells(grid)) do cell_id
+            if !isempty(grid.intersections[cell_id])
+                only(state.cells[cell_id])
+            else
+                '█'
+            end
+        end
+    end
+end
+
+function generate_fills(grid::WordGrid, corpus;
+        validate = state -> true)
+    generate_fills(grid, GridState(grid, corpus); validate=validate)
 end
 
 end

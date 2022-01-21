@@ -1,4 +1,4 @@
-using PuzzleTools.LetterGrids: LetterMask
+using PuzzleTools.Crosswords: LetterMask
 using Test
 using Random
 
