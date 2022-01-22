@@ -172,6 +172,7 @@ function GridState(grid::WordGrid, unfiltered_corpus)
 end
 
 function propagate_entry!(state::GridState, grid::WordGrid, entry_id::Integer; prevent_duplicate_entries=true)
+    queue = Int[]
     for (index_in_entry, cell_id) in enumerate(grid.entries[entry_id])
         new_mask = LetterMask(0)
         for word_id in state.entry_options[entry_id]
@@ -183,27 +184,38 @@ function propagate_entry!(state::GridState, grid::WordGrid, entry_id::Integer; p
             if num_options(state.cells[cell_id]) == 0
                 return false
             end
-            propagate_cell!(state, grid, cell_id; prevent_duplicate_entries) || return false
+            push!(queue, cell_id)
+            # propagate_cell!(state, grid, cell_id; prevent_duplicate_entries) || return false
         end
+    end
+    for cell_id in queue
+        propagate_cell!(state, grid, cell_id; prevent_duplicate_entries) || return false
     end
     return true
 end
 
 function propagate_cell!(state::GridState, grid::WordGrid, cell_id::Integer; prevent_duplicate_entries::Bool=true)
+    queue = Int[]
 
     cell_mask = state.cells[cell_id].mask
     for (entry_id, index_in_entry) in grid.intersections[cell_id]
         prev_size = length(state.entry_options[entry_id])
         filter!(state.entry_options[entry_id]) do word_id
-            !isempty(state.corpus[word_id][index_in_entry] & cell_mask)
+            for (index_in_entry, cell_id) in enumerate(grid.entries[entry_id])
+                if isempty(state.corpus[word_id][index_in_entry] & state.cells[cell_id].mask)
+                    return false
+                end
+            end
+            return true
+            # !isempty(state.corpus[word_id][index_in_entry] & cell_mask)
         end
         new_size = length(state.entry_options[entry_id])
         if new_size == 0
             return false
         end
         if length(state.entry_options[entry_id]) != prev_size
-            # push!(changed_entry_ids, entry_id)
-            propagate_entry!(state::GridState, grid::WordGrid, entry_id; prevent_duplicate_entries) || return false
+            push!(queue, entry_id)
+            # propagate_entry!(state::GridState, grid::WordGrid, entry_id; prevent_duplicate_entries) || return false
         end
     end
 
@@ -231,11 +243,17 @@ function propagate_cell!(state::GridState, grid::WordGrid, cell_id::Integer; pre
                     end
                     if state.entry_options[other_entry_id][i] == word_id
                         deleteat!(state.entry_options[other_entry_id], i:i)
-                        propagate_entry!(state, grid, other_entry_id; prevent_duplicate_entries) || return false
+                        if other_entry_id ∉ queue
+                            push!(queue, other_entry_id)
+                        end
+                        # propagate_entry!(state, grid, other_entry_id; prevent_duplicate_entries) || return false
                     end
                 end
             end
         end
+    end
+    for entry_id in queue
+        propagate_entry!(state, grid, entry_id; prevent_duplicate_entries) || return false
     end
     return true
 end
