@@ -5,7 +5,7 @@ using ..PuzzleTools.Search: dfs
 export block_crossword, generate_fills
 
 struct LetterMask
-    data::UInt
+    data::UInt32
 
 end
 
@@ -56,6 +56,8 @@ Base.IteratorSize(::Type{LetterMask}) = Base.SizeUnknown()
 Base.isempty(mask::LetterMask) = iszero(mask.data)
 
 Base.in(char::Char, mask::LetterMask) = !isempty(LetterMask(char) & mask)
+
+Base.isless(m1::LetterMask, m2::LetterMask) = m1.data < m2.data
 
 struct WordGrid
     # Size: num_entries.
@@ -135,7 +137,7 @@ Base.only(state::CellState) = only(state.mask)
 struct GridState
     cells::Vector{CellState}
     entry_options::Vector{Vector{Int}}
-    corpus::Vector{Vector{Char}}
+    corpus::Vector{Vector{LetterMask}}
 end
 
 
@@ -143,7 +145,7 @@ function GridState(grid::WordGrid, unfiltered_corpus)
     corpus = collect.(unfiltered_corpus)
     entry_lengths = Set(length.(grid.entries))
     filter!(corpus) do word
-        length(word) in entry_lengths
+        length(word) in entry_lengths && all(isascii, word)
     end
     sort!(corpus)
 
@@ -163,14 +165,17 @@ function GridState(grid::WordGrid, unfiltered_corpus)
         end
     end
 
-    GridState(cells, options, corpus)
+    corpus_masks = [LetterMask.(word) for word in corpus]
+    @assert issorted(corpus_masks)
+
+    GridState(cells, options, corpus_masks)
 end
 
 function propagate_entry!(state::GridState, grid::WordGrid, entry_id::Integer; prevent_duplicate_entries=true)
     for (index_in_entry, cell_id) in enumerate(grid.entries[entry_id])
         new_mask = LetterMask(0)
         for word_id in state.entry_options[entry_id]
-            new_mask |= LetterMask(state.corpus[word_id][index_in_entry])
+            new_mask |= state.corpus[word_id][index_in_entry]
         end
         new_mask &= state.cells[cell_id].mask
         if new_mask != state.cells[cell_id].mask
@@ -190,7 +195,7 @@ function propagate_cell!(state::GridState, grid::WordGrid, cell_id::Integer; pre
     for (entry_id, index_in_entry) in grid.intersections[cell_id]
         prev_size = length(state.entry_options[entry_id])
         filter!(state.entry_options[entry_id]) do word_id
-            state.corpus[word_id][index_in_entry] in cell_mask
+            !isempty(state.corpus[word_id][index_in_entry] & cell_mask)
         end
         new_size = length(state.entry_options[entry_id])
         if new_size == 0
@@ -208,7 +213,7 @@ function propagate_cell!(state::GridState, grid::WordGrid, cell_id::Integer; pre
                 num_options(state.cells[cell_id]) == 1
             end
             if entry_complete
-                word = only.(@view(state.cells[grid.entries[entry_id]]))
+                word = [cell.mask for cell in @view(state.cells[grid.entries[entry_id]])]
                 word_id = searchsortedfirst(state.corpus, word)
                 if state.corpus[word_id] != word
                     return false
