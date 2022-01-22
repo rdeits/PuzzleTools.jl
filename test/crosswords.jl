@@ -28,7 +28,7 @@ using Random
 
     Random.seed!(42)
     for i in 1:10000
-        mask = LetterMask(rand(UInt))
+        mask = LetterMask(rand(UInt32))
         @test length(mask) == count(==('1'), bitstring(mask.data))
         @test exactly_one_bit_set(mask) == (length(mask) == 1)
     end
@@ -47,6 +47,9 @@ end
         for col in eachcol(filled_grid)
             @test join(col) in corpus
         end
+
+        all_entries = [join(x) for x in Iterators.flatten((eachrow(filled_grid), eachcol(filled_grid)))]
+        @test allunique(all_entries)
     end
 end
 
@@ -74,6 +77,8 @@ end
         @test puzzle.entries[i] == expected_cell_indices
         @test join(view(filled_grid, expected_entry...)) in corpus
     end
+    all_entries = [join(view(filled_grid, e)) for e in puzzle.entries]
+    @test allunique(all_entries)
 end
 
 @testset "Full size crossword" begin
@@ -99,4 +104,6 @@ end
     for entry in puzzle.entries
         @test join(view(filled_grid, entry)) in corpus
     end
+    all_entries = [join(view(filled_grid, e)) for e in puzzle.entries]
+    @test allunique(all_entries)
 end
