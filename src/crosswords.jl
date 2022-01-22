@@ -166,7 +166,7 @@ function GridState(grid::WordGrid, unfiltered_corpus)
     GridState(cells, options, corpus)
 end
 
-function propagate_entry!(state::GridState, grid::WordGrid, entry_id::Integer)
+function propagate_entry!(state::GridState, grid::WordGrid, entry_id::Integer; prevent_duplicate_entries=true)
     for (index_in_entry, cell_id) in enumerate(grid.entries[entry_id])
         new_mask = LetterMask(0)
         for word_id in state.entry_options[entry_id]
@@ -175,12 +175,17 @@ function propagate_entry!(state::GridState, grid::WordGrid, entry_id::Integer)
         new_mask &= state.cells[cell_id].mask
         if new_mask != state.cells[cell_id].mask
             state.cells[cell_id] = CellState(new_mask)
-            propagate_cell!(state, grid, cell_id)
+            if num_options(state.cells[cell_id]) == 0
+                return false
+            end
+            propagate_cell!(state, grid, cell_id; prevent_duplicate_entries) || return false
         end
     end
+    return true
 end
 
-function propagate_cell!(state::GridState, grid::WordGrid, cell_id::Integer)
+function propagate_cell!(state::GridState, grid::WordGrid, cell_id::Integer; prevent_duplicate_entries::Bool=true)
+
     cell_mask = state.cells[cell_id].mask
     for (entry_id, index_in_entry) in grid.intersections[cell_id]
         prev_size = length(state.entry_options[entry_id])
@@ -188,31 +193,66 @@ function propagate_cell!(state::GridState, grid::WordGrid, cell_id::Integer)
             state.corpus[word_id][index_in_entry] in cell_mask
         end
         new_size = length(state.entry_options[entry_id])
+        if new_size == 0
+            return false
+        end
         if length(state.entry_options[entry_id]) != prev_size
             # push!(changed_entry_ids, entry_id)
-            propagate_entry!(state::GridState, grid::WordGrid, entry_id)
+            propagate_entry!(state::GridState, grid::WordGrid, entry_id; prevent_duplicate_entries) || return false
         end
     end
+
+    if prevent_duplicate_entries && num_options(state.cells[cell_id]) == 1
+        for (entry_id, _) in grid.intersections[cell_id]
+            entry_complete = all(grid.entries[entry_id]) do cell_id
+                num_options(state.cells[cell_id]) == 1
+            end
+            if entry_complete
+                word = only.(@view(state.cells[grid.entries[entry_id]]))
+                word_id = searchsortedfirst(state.corpus, word)
+                if state.corpus[word_id] != word
+                    return false
+                end
+                for other_entry_id in 1:num_entries(grid)
+                    if other_entry_id == entry_id
+                        continue
+                    end
+                    if isempty(state.entry_options[other_entry_id])
+                        continue
+                    end
+                    i = searchsortedfirst(state.entry_options[other_entry_id], word_id)
+                    if i > length(state.entry_options[other_entry_id])
+                        continue
+                    end
+                    if state.entry_options[other_entry_id][i] == word_id
+                        deleteat!(state.entry_options[other_entry_id], i:i)
+                        propagate_entry!(state, grid, other_entry_id; prevent_duplicate_entries) || return false
+                    end
+                end
+            end
+        end
+    end
+    return true
 end
 
-function apply(state::GridState, grid::WordGrid, cell_id::Integer, letter::Char)
+function apply(state::GridState, grid::WordGrid, cell_id::Integer, letter::Char; prevent_duplicate_entries=true)
 
     cells = copy(state.cells)
     cells[cell_id] = CellState(LetterMask(letter))
     options = copy.(state.entry_options)
     state = GridState(cells, options, state.corpus)
-    propagate_cell!(state, grid, cell_id)
+    propagate_cell!(state, grid, cell_id; prevent_duplicate_entries)
     state
 end
 
-function children(nodes, grid)
+function children(nodes, grid; prevent_duplicate_entries=true)
     state = last(nodes)
     num_options, most_constrained_cell = findmin(c -> c.num_options == 1 ? typemax(typeof(c.num_options)) : c.num_options, state.cells)
     if num_options == 0
         return nothing
     end
     @assert num_options != typemax(Int)
-    (apply(state, grid, most_constrained_cell, letter) for letter in state.cells[most_constrained_cell].mask)
+    (apply(state, grid, most_constrained_cell, letter; prevent_duplicate_entries) for letter in state.cells[most_constrained_cell].mask)
 end
 
 function evaluate(nodes, grid, validate)
@@ -229,6 +269,9 @@ function evaluate(nodes, grid, validate)
             fully_constrained = false
         end
     end
+    if any(i -> length(state.entry_options[i]) == 0, 1:num_entries(grid))
+        return :bad
+    end
     if !validate(state)
         return :bad
     end
@@ -240,16 +283,17 @@ end
 
 function generate_fills(grid::WordGrid,
                         state::GridState;
-                            validate = state -> true)
+                            validate = state -> true,
+                            prevent_duplicate_entries = true)
     for entry_id in 1:num_entries(grid)
-        propagate_entry!(state, grid, entry_id)
+        propagate_entry!(state, grid, entry_id; prevent_duplicate_entries)
     end
 
     for cell_id in 1:num_cells(grid)
-        propagate_cell!(state, grid, cell_id)
+        propagate_cell!(state, grid, cell_id; prevent_duplicate_entries)
     end
 
-    search = dfs(state, nodes -> children(nodes, grid),
+    search = dfs(state, nodes -> children(nodes, grid; prevent_duplicate_entries),
                  nodes -> evaluate(nodes, grid, validate))
     Iterators.map(search) do nodes
         state = last(nodes)
@@ -264,8 +308,9 @@ function generate_fills(grid::WordGrid,
 end
 
 function generate_fills(grid::WordGrid, corpus;
-        validate = state -> true)
-    generate_fills(grid, GridState(grid, corpus); validate=validate)
+        validate = state -> true,
+        prevent_duplicate_entries = true)
+    generate_fills(grid, GridState(grid, corpus); validate, prevent_duplicate_entries)
 end
 
 end
