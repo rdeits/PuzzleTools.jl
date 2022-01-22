@@ -121,21 +121,8 @@ end
 num_entries(grid::WordGrid) = length(grid.entries)
 num_cells(grid::WordGrid) = length(grid.intersections)
 
-struct CellState
-    mask::LetterMask
-    num_options::Int8
-
-    CellState(mask::LetterMask) = new(mask, length(mask))
-end
-
-CellState(char::Char) = CellState(LetterMask(char))
-CellState(chars::AbstractVector{Char}) = CellState(LetterMask(chars))
-
-num_options(state::CellState) = state.num_options
-Base.only(state::CellState) = only(state.mask)
-
 struct GridState
-    cells::Vector{CellState}
+    cells::Vector{LetterMask}
     entry_options::Vector{Vector{Int}}
     corpus::Vector{Vector{LetterMask}}
 end
@@ -156,10 +143,10 @@ function GridState(grid::WordGrid, unfiltered_corpus)
         end)
     end
 
-    cells = [CellState(LetterMask('~')) for _ in 1:num_cells(grid)]
+    cells = [LetterMask('~') for _ in 1:num_cells(grid)]
     for entry in grid.entries
         for cell_id in entry
-            cells[cell_id] = CellState(LetterMask('a':'z'))
+            cells[cell_id] = LetterMask('a':'z')
         end
     end
 
@@ -175,10 +162,10 @@ function propagate_entry!(state::GridState, grid::WordGrid, entry_id::Integer, c
         for word_id in state.entry_options[entry_id]
             new_mask |= state.corpus[word_id][index_in_entry]
         end
-        new_mask &= state.cells[cell_id].mask
-        if new_mask != state.cells[cell_id].mask
-            state.cells[cell_id] = CellState(new_mask)
-            if num_options(state.cells[cell_id]) == 0
+        new_mask &= state.cells[cell_id]
+        if new_mask != state.cells[cell_id]
+            state.cells[cell_id] = new_mask
+            if isempty(state.cells[cell_id])
                 return false
             end
             push!(cells_to_process, cell_id)
@@ -190,11 +177,11 @@ end
 
 function propagate_cell!(state::GridState, grid::WordGrid, cell_id::Integer, cells_to_process; prevent_duplicate_entries::Bool=true)
 
-    cell_mask = state.cells[cell_id].mask
+    cell_mask = state.cells[cell_id]
     for (entry_id, index_in_entry) in grid.intersections[cell_id]
         prev_size = length(state.entry_options[entry_id])
         filter!(state.entry_options[entry_id]) do word_id
-            !isempty(state.corpus[word_id][index_in_entry] & state.cells[cell_id].mask)
+            !isempty(state.corpus[word_id][index_in_entry] & state.cells[cell_id])
         end
         new_size = length(state.entry_options[entry_id])
         if new_size == 0
@@ -204,7 +191,7 @@ function propagate_cell!(state::GridState, grid::WordGrid, cell_id::Integer, cel
             propagate_entry!(state, grid, entry_id, cells_to_process; prevent_duplicate_entries) || return false
 
             if prevent_duplicate_entries && new_size == 1
-                word = [cell.mask for cell in @view(state.cells[grid.entries[entry_id]])]
+                word = @view(state.cells[grid.entries[entry_id]])
                 word_id = searchsortedfirst(state.corpus, word)
                 @assert state.corpus[word_id] == word
                 for other_entry_id in 1:num_entries(grid)
@@ -241,7 +228,7 @@ end
 function apply(state::GridState, grid::WordGrid, cell_id::Integer, letter::Char; prevent_duplicate_entries=true)
 
     cells = copy(state.cells)
-    cells[cell_id] = CellState(LetterMask(letter))
+    cells[cell_id] = LetterMask(letter)
     options = copy.(state.entry_options)
     state = GridState(cells, options, state.corpus)
     propagate_constraints!(state, grid, cell_id; prevent_duplicate_entries)
@@ -250,12 +237,15 @@ end
 
 function children(nodes, grid; prevent_duplicate_entries=true)
     state = last(nodes)
-    num_options, most_constrained_cell = findmin(c -> c.num_options == 1 ? typemax(typeof(c.num_options)) : c.num_options, state.cells)
+    num_options, most_constrained_cell = findmin(state.cells) do cell
+        num_options = length(cell)
+        num_options == 1 ? typemax(typeof(num_options)) : num_options
+    end
     if num_options == 0
         return nothing
     end
     @assert num_options != typemax(Int)
-    (apply(state, grid, most_constrained_cell, letter; prevent_duplicate_entries) for letter in state.cells[most_constrained_cell].mask)
+    (apply(state, grid, most_constrained_cell, letter; prevent_duplicate_entries) for letter in state.cells[most_constrained_cell])
 end
 
 function evaluate(nodes, grid, validate)
@@ -265,10 +255,9 @@ function evaluate(nodes, grid, validate)
         if isempty(grid.intersections[cell_id])
             continue
         end
-        if cell.num_options == 0
+        if isempty(cell)
             return :bad
-        end
-        if cell.num_options > 1
+        elseif !exactly_one_bit_set(cell)
             fully_constrained = false
         end
     end

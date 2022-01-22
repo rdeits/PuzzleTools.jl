@@ -1,6 +1,6 @@
 using Test
 using PuzzleTools
-using PuzzleTools.Crosswords: block_crossword, generate_fills, GridState, CellState
+using PuzzleTools.Crosswords: block_crossword, generate_fills, GridState, LetterMask
 using PuzzleTools.Words: twl06
 
 @testset "love's labors crossed" begin
@@ -30,10 +30,10 @@ using PuzzleTools.Words: twl06
     initial_state = GridState(puzzle, corpus)
     I = LinearIndices((N + 1, N + 1))
     for i in 1:N
-        initial_state.cells[I[N + 1, i]] = CellState('a':'l')
+        initial_state.cells[I[N + 1, i]] = LetterMask('a':'l')
     end
     for i in 1:N
-        initial_state.cells[I[i, N + 1]] = CellState('m':'z')
+        initial_state.cells[I[i, N + 1]] = LetterMask('m':'z')
     end
 
     solution = first(generate_fills(puzzle, initial_state))
