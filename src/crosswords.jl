@@ -1,65 +1,24 @@
 module Crosswords
 
 using ..PuzzleTools.Search: dfs
+using ..PuzzleTools.Bitsets
+using ..PuzzleTools: PuzzleTools, generate_fills
 
 export block_crossword, generate_fills
 
-struct LetterMask
+struct LetterSet <: AbstractBitmaskSet{Char}
     data::UInt32
 
+    LetterSet() = new(0)
+    LetterSet(data::UInt32) = new(data)
+    LetterSet(c::Char) = new(1 << (c - 'a'))
 end
 
-LetterMask(char::Char) = LetterMask(1 << (char - 'a'))
 
-function LetterMask(chars::AbstractVector{Char})
-    reduce((x, y) -> x | LetterMask(y), chars, init=LetterMask(0))
-end
+Bitsets.data(m::LetterSet) = m.data
+Bitsets.alphabet(::Type{LetterSet}) = 'a':'z'
 
-# Clever math trick via https://stackoverflow.com/a/51094793/641846
-exactly_one_bit_set(x::Integer) = !iszero(x) && iszero(x & (x - 1))
-exactly_one_bit_set(m::LetterMask) = exactly_one_bit_set(m.data)
-
-function Base.only(mask::LetterMask)
-    exactly_one_bit_set(mask.data) || throw(ArgumentError("Mask must contain exactly one element"))
-    sizeof(mask.data) << 3 - leading_zeros(mask.data) - 1 + 'a'
-end
-
-function Base.length(mask::LetterMask)
-    data = mask.data
-    result = 0
-    while true
-        if iszero(data)
-            return result
-        end
-        result += data & 1
-        data >>= 1
-    end
-end
-
-Base.:&(m1::LetterMask, m2::LetterMask) = LetterMask(m1.data & m2.data)
-Base.:|(m1::LetterMask, m2::LetterMask) = LetterMask(m1.data | m2.data)
-
-function Base.iterate(mask::LetterMask, state = (mask.data, 1))
-    shifted_data, index = state
-    while !iszero(shifted_data)
-        found = !iszero(shifted_data & 1)
-        shifted_data >>= 1
-        index += 1
-        if found
-            return 'a' + index - 2, (shifted_data, index)
-        end
-    end
-end
-Base.eltype(::Type{LetterMask}) = Char
-Base.IteratorSize(::Type{LetterMask}) = Base.SizeUnknown()
-
-Base.isempty(mask::LetterMask) = iszero(mask.data)
-
-Base.in(char::Char, mask::LetterMask) = !isempty(LetterMask(char) & mask)
-
-Base.isless(m1::LetterMask, m2::LetterMask) = m1.data < m2.data
-
-struct WordGrid
+struct Crowssword
     # Size: num_entries.
     # Each entry is a vector of linear indices in the grid
     entries::Vector{Vector{Int}}
@@ -68,7 +27,7 @@ struct WordGrid
     # For each cell, gives the list of (entry index, index within entry) for all entries that include that cell
     intersections::Vector{Vector{Tuple{Int, Int}}}
 
-    function WordGrid(num_cells::Integer, entries::AbstractVector{<:AbstractVector{<:Integer}})
+    function Crowssword(num_cells::Integer, entries::AbstractVector{<:AbstractVector{<:Integer}})
         intersections = [Vector{Tuple{Int, Int}}() for _ in 1:num_cells]
         for (entry_index, entry) in enumerate(entries)
             for (cell_index_in_entry, cell_id) in enumerate(entry)
@@ -115,20 +74,20 @@ function block_crossword(cells::AbstractMatrix{Bool}; min_length=3)
             end
         end
     end
-    WordGrid(length(cells), entries)
+    Crowssword(length(cells), entries)
 end
 
-num_entries(grid::WordGrid) = length(grid.entries)
-num_cells(grid::WordGrid) = length(grid.intersections)
+num_entries(grid::Crowssword) = length(grid.entries)
+num_cells(grid::Crowssword) = length(grid.intersections)
 
 struct GridState
-    cells::Vector{LetterMask}
+    cells::Vector{LetterSet}
     entry_options::Vector{Vector{Int}}
-    corpus::Vector{Vector{LetterMask}}
+    corpus::Vector{Vector{LetterSet}}
 end
 
 
-function GridState(grid::WordGrid, unfiltered_corpus)
+function GridState(grid::Crowssword, unfiltered_corpus)
     entry_lengths = Set(length.(grid.entries))
     corpus = sort!(collect.(
         filter(w -> length(w) in entry_lengths && all(isascii, w),
@@ -143,26 +102,28 @@ function GridState(grid::WordGrid, unfiltered_corpus)
         end)
     end
 
-    cells = [LetterMask('~') for _ in 1:num_cells(grid)]
+    cells = [LetterSet('~') for _ in 1:num_cells(grid)]
     for entry in grid.entries
         for cell_id in entry
-            cells[cell_id] = LetterMask('a':'z')
+            cells[cell_id] = LetterSet('a':'z')
         end
     end
 
-    corpus_masks = [LetterMask.(word) for word in corpus]
+    corpus_masks = [LetterSet.(word) for word in corpus]
     @assert issorted(corpus_masks)
 
     GridState(cells, options, corpus_masks)
 end
 
-function propagate_entry!(state::GridState, grid::WordGrid, entry_id::Integer, cells_to_process; prevent_duplicate_entries=true)
+Base.copy(state::GridState) = GridState(copy(state.cells), copy.(state.entry_options), state.corpus)
+
+function propagate_entry!(state::GridState, grid::Crowssword, entry_id::Integer, cells_to_process; prevent_duplicate_entries=true)
     for (index_in_entry, cell_id) in enumerate(grid.entries[entry_id])
-        new_mask = LetterMask(0)
+        new_mask = LetterSet()
         for word_id in state.entry_options[entry_id]
-            new_mask |= state.corpus[word_id][index_in_entry]
+            new_mask = new_mask ∪ state.corpus[word_id][index_in_entry]
         end
-        new_mask &= state.cells[cell_id]
+        new_mask = new_mask ∩ state.cells[cell_id]
         if new_mask != state.cells[cell_id]
             state.cells[cell_id] = new_mask
             if isempty(state.cells[cell_id])
@@ -175,13 +136,13 @@ function propagate_entry!(state::GridState, grid::WordGrid, entry_id::Integer, c
     return true
 end
 
-function propagate_cell!(state::GridState, grid::WordGrid, cell_id::Integer, cells_to_process; prevent_duplicate_entries::Bool=true)
+function propagate_cell!(state::GridState, grid::Crowssword, cell_id::Integer, cells_to_process; prevent_duplicate_entries::Bool=true)
 
     cell_mask = state.cells[cell_id]
     for (entry_id, index_in_entry) in grid.intersections[cell_id]
         prev_size = length(state.entry_options[entry_id])
         filter!(state.entry_options[entry_id]) do word_id
-            !isempty(state.corpus[word_id][index_in_entry] & state.cells[cell_id])
+            !isempty(state.corpus[word_id][index_in_entry] ∩ state.cells[cell_id])
         end
         new_size = length(state.entry_options[entry_id])
         if new_size == 0
@@ -214,7 +175,7 @@ function propagate_cell!(state::GridState, grid::WordGrid, cell_id::Integer, cel
     return true
 end
 
-function propagate_constraints!(state::GridState, grid::WordGrid, cell_id::Integer; prevent_duplicate_entries=true)
+function propagate_constraints!(state::GridState, grid::Crowssword, cell_id::Integer; prevent_duplicate_entries=true)
     cells_to_process = Set{Int}()
     push!(cells_to_process, cell_id)
 
@@ -225,12 +186,8 @@ function propagate_constraints!(state::GridState, grid::WordGrid, cell_id::Integ
     return true
 end
 
-function apply(state::GridState, grid::WordGrid, cell_id::Integer, letter::Char; prevent_duplicate_entries=true)
-
-    cells = copy(state.cells)
-    cells[cell_id] = LetterMask(letter)
-    options = copy.(state.entry_options)
-    state = GridState(cells, options, state.corpus)
+function apply!(state::GridState, grid::Crowssword, cell_id::Integer, letter::Char; prevent_duplicate_entries=true)
+    state.cells[cell_id] = LetterSet(letter)
     propagate_constraints!(state, grid, cell_id; prevent_duplicate_entries)
     state
 end
@@ -245,7 +202,7 @@ function children(nodes, grid; prevent_duplicate_entries=true)
         return nothing
     end
     @assert num_options != typemax(Int)
-    (apply(state, grid, most_constrained_cell, letter; prevent_duplicate_entries) for letter in state.cells[most_constrained_cell])
+    (apply!(copy(state), grid, most_constrained_cell, letter; prevent_duplicate_entries) for letter in state.cells[most_constrained_cell])
 end
 
 function evaluate(nodes, grid, validate)
@@ -257,7 +214,7 @@ function evaluate(nodes, grid, validate)
         end
         if isempty(cell)
             return :bad
-        elseif !exactly_one_bit_set(cell)
+        elseif !exactly_one_element(cell)
             fully_constrained = false
         end
     end
@@ -273,7 +230,7 @@ function evaluate(nodes, grid, validate)
     return :partial
 end
 
-function generate_fills(grid::WordGrid,
+function PuzzleTools.generate_fills(grid::Crowssword,
                         state::GridState;
                             validate = state -> true,
                             prevent_duplicate_entries = true)
@@ -299,7 +256,7 @@ function generate_fills(grid::WordGrid,
     end
 end
 
-function generate_fills(grid::WordGrid, corpus;
+function PuzzleTools.generate_fills(grid::Crowssword, corpus;
         validate = state -> true,
         prevent_duplicate_entries = true)
     generate_fills(grid, GridState(grid, corpus); validate, prevent_duplicate_entries)
