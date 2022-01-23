@@ -8,7 +8,7 @@ function data end
 function alphabet end
 
 function (::Type{T})(elements::AbstractVector) where {T <: AbstractBitmaskSet}
-    reduce((x, y) -> x | T(y), elements, init=T(0))
+    reduce((x, y) -> x ∪ T(y), elements, init=T())
 end
 
 # Clever math trick via https://stackoverflow.com/a/51094793/641846
@@ -33,8 +33,11 @@ function Base.length(mask::AbstractBitmaskSet)
     end
 end
 
-Base.:&(m1::T, m2::T) where {T <: AbstractBitmaskSet} = T(data(m1) & data(m2))
-Base.:|(m1::T, m2::T) where {T <: AbstractBitmaskSet} = T(data(m1) | data(m2))
+Base.intersect(m1::T, m2::T) where {T <: AbstractBitmaskSet} = T(data(m1) & data(m2))
+
+Base.union(m1::T, m2::T) where {T <: AbstractBitmaskSet} = T(data(m1) | data(m2))
+
+Base.setdiff(m1::T, m2::T) where {T <: AbstractBitmaskSet} = T(data(m1) & ~data(m2))
 
 function Base.iterate(mask::M, state = (data(mask), 1)) where {M <: AbstractBitmaskSet}
     shifted_data, index = state
@@ -52,7 +55,7 @@ Base.IteratorSize(::Type{T}) where {T <: AbstractBitmaskSet} = Base.SizeUnknown(
 
 Base.isempty(mask::AbstractBitmaskSet) = iszero(data(mask))
 
-Base.in(element, mask::T) where {T <: AbstractBitmaskSet} = !isempty(T(element) & mask)
+Base.in(element, mask::T) where {T <: AbstractBitmaskSet} = !isempty(T(element) ∩ mask)
 
 Base.isless(m1::T, m2::T) where {T <: AbstractBitmaskSet} = data(m1) < data(m2)
 

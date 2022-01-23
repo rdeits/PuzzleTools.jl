@@ -1,4 +1,5 @@
 using PuzzleTools.Crosswords
+using PuzzleTools.Bitsets: data
 using PuzzleTools.Crosswords: LetterSet, exactly_one_element
 using PuzzleTools.Words: twl06
 using Test
@@ -10,21 +11,21 @@ using Random
         @test length(LetterSet(char)) == 1
     end
 
-    @test length(LetterSet(0)) == 0
-    @test length(LetterSet(1)) == 1
-    @test length(LetterSet(2)) == 1
-    @test length(LetterSet(4)) == 1
-    @test length(LetterSet(5)) == 2
-    @test length(LetterSet(typemax(UInt32))) == 32
-    @test LetterSet(1) | LetterSet(4) == LetterSet(5)
-    @test LetterSet(5) & LetterSet(4) == LetterSet(4)
-    @test LetterSet(['a', 'c', 'd']) == LetterSet(1 + 4 + 8)
-    @test @inferred(LetterSet(Char[])) == LetterSet(0)
+    @test length(LetterSet()) == 0
+    @test length(LetterSet('a')) == 1
+    @test length(LetterSet(['a', 'b'])) == 2
+    @test length(LetterSet('c')) == 1
+    @test length(LetterSet(['c', 'a'])) == 2
+    @test length(LetterSet('a':'z')) == 26
+    @test LetterSet('a') ∪ LetterSet('d') == LetterSet(['d', 'a'])
+    @test LetterSet(['d', 'a']) ∩ LetterSet('d') == LetterSet('d')
+    @test data(LetterSet(['a', 'c', 'd'])) == 1 + 4 + 8
+    @test @inferred(LetterSet(Char[])) == LetterSet()
     @test collect(LetterSet(['a', 'b', 'd', 'e'])) == collect("abde")
     @test 'a' ∈ LetterSet('a')
     @test 'b' ∈ LetterSet(collect("abc"))
     @test 'e' ∉ LetterSet(collect("abc"))
-    @test 'e' ∉ LetterSet(0)
+    @test 'e' ∉ LetterSet()
 
     Random.seed!(42)
     for i in 1:10000
