@@ -5,6 +5,7 @@ include("words.jl")
 include("caching.jl")
 include("wiki.jl")
 include("search.jl")
+include("wordsearch.jl")
 include("trie_iteration.jl")
 include("bitsets.jl")
 
