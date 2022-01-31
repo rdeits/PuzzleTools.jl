@@ -1,5 +1,8 @@
 using Test
-using PuzzleTools.Search
+using PuzzleTools.Search: dfs
+using PuzzleTools.Words
+using Graphs: SimpleDiGraph, add_edge!
+using PuzzleTools: is_valid_prefix
 
 @testset "graph_search" begin
     actions = Dict(
@@ -29,13 +32,35 @@ using PuzzleTools.Search
         24 => []
     )
 
-    transitions(x) = (y for y in actions[last(x)] if y ∉ x)
-    function evaluate(x)
-        if length(x) == 24
-            :good
-        else
-            :partial
+    graph = SimpleDiGraph(24)
+    for (a, dests) in actions
+        for b in dests
+            add_edge!(graph, a, b)
         end
     end
-    @test only(dfs(1, transitions, evaluate)) == [1, 11, 4, 3, 8, 6, 17, 19, 15, 12, 23, 10, 16, 5, 2, 9, 18, 20, 21, 22, 13, 14, 7, 24]
+    evaluate = path -> length(path) == 24 ? :good : :partial
+    @test only(dfs(graph, 1, evaluate; allow_cycles=false)) == [1, 11, 4, 3, 8, 6, 17, 19, 15, 12, 23, 10, 16, 5, 2, 9, 18, 20, 21, 22, 13, 14, 7, 24]
+end
+
+@testset "dictionary search" begin
+    # Run a depth-first search over strings, and make sure the result is exactly the same as the corpus itself
+
+    text = """
+        Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum"""
+    corpus = sort(unique(split(replace(lowercase(text), r"[^a-z]" => ""))))
+
+    children(path) = 'a':'z'
+
+    function evaluate(path)
+        if join(@view path[2:end]) in corpus
+            return :good_and_partial
+        elseif is_valid_prefix(corpus, join(@view path[2:end]))
+            return :partial
+        else
+            return :bad
+        end
+    end
+
+    search = dfs(Char(0), children, evaluate)
+    @test [join(w[2:end]) for w in search] == corpus
 end
